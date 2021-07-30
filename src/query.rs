@@ -3,6 +3,11 @@ use crate::index::searchable_index::{SearchableIndex};
 use crate::search_result::{SearchResultIds};
 
 
+
+// This is a processed query where a search query and maybe some facets are
+// procesed to produce this query that the index querier can execute on an index
+
+
 pub struct IndexQuery {
     properties: Vec::<PropertyQuery>,
 }
@@ -69,8 +74,6 @@ fn query_text_property(index: &SearchableIndex, property: &str, query_text: &str
 }
 
 
-
-
 #[cfg(test)]
 mod tests {
 
@@ -102,45 +105,54 @@ mod tests {
         SearchableIndex::from_documents(&documents)
 
     }
+
+
+    #[test]
+    fn get_docs_0() {
+
+        let index = create_index();
+
+
+        let properties = vec![
+            PropertyQuery {
+                name: "content".to_string(),
+                query_data: PropertyType::Text("unknown".to_string())
+            }
+        ];
+
+        let query = IndexQuery {
+            properties: properties.clone()
+        };
+
+
+        let res = query_index(&index, &query);
+
+        assert_eq!(res.doc_ids.len(), 0);
+
+    }
+
+
     #[test]
     fn get_docs_1() {
 
         let index = create_index();
 
 
-
-        let properties_0 = vec![
-            PropertyQuery {
-                name: "content".to_string(),
-                query_data: PropertyType::Text("lorupd".to_string())
-            }
-        ];
-
-        let properties_1 = vec![
+        let properties = vec![
             PropertyQuery {
                 name: "content".to_string(),
                 query_data: PropertyType::Text("lorup".to_string())
             }
         ];
-        let query_0 = IndexQuery {
-            properties: properties_0.clone()
+
+        let query = IndexQuery {
+            properties: properties.clone()
         };
 
-        let query_1 = IndexQuery {
-            properties: properties_1.clone()
-        };
 
-        let res_0 = query_index(&index, &query_0);
+        let res = query_index(&index, &query);
 
-
-
-
-
-        let res_1 = query_index(&index, &query_1);
-
-        assert_eq!(res_0.doc_ids.len(), 0);
-
-        assert_eq!(res_1.doc_ids.len(), 1);
-
+        assert_eq!(res.doc_ids.len(), 1);
     }
+
 }
