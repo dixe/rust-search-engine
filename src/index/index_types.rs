@@ -1,7 +1,7 @@
 pub type PropertyName = String;
 
 pub type DocId = usize;
-pub type IntegerT = u32;
+pub type IntegerT = i32;
 pub type TextT = String;
 pub type SortableTextT = String;
 
@@ -21,8 +21,8 @@ pub struct IndexProperty {
 
 #[derive(Clone)]
 pub enum PropertyType {
-    Integer(u32),
-    Text(String),
-    SortableText(String), // enforce some kind of size limit to ensure performant sorting
+    Integer(IntegerT),
+    Text(TextT),
+    SortableText(SortableTextT), // enforce some kind of size limit to ensure performant sorting
     //Date Type
 }

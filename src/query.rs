@@ -5,8 +5,6 @@ use crate::index::searchable_index::{SearchableIndex};
 use crate::search_result::{SearchResultIds};
 
 
-
-
 // This is a processed query where a search query and maybe some facets are
 // procesed to produce this query that the index querier can execute on an index
 
@@ -25,19 +23,45 @@ pub struct PropertyQuery {
 
 
 pub struct Criterion {
-    properties: Vec::<PropertyQuery>,
-
+    first_property: PropertyQuery,
+    additional_properties: Option<Vec::<PropertyQuery>>,
+    operation: Operation
 }
 
-pub enum FacetQueryType {
+#[derive(Clone, Copy, Debug)]
+pub enum Operation {
     And,
     Or
 }
 
+impl Operation {
+
+    pub fn combine(&self, set1: &HashSet<DocId>, set2: &HashSet<DocId>) -> HashSet<DocId> {
+
+        let smaller;
+        let bigger;
+
+        if set1.len() < set2.len() {
+            smaller = &set1;
+            bigger = &set2;
+        } else {
+            smaller = &set2;
+            bigger = &set1;
+
+        }
+
+        return match self {
+            And => smaller.intersection(bigger).copied().collect(),
+            Or => smaller.union(bigger).copied().collect()
+        }
+
+    }
+}
+
 pub struct FacetQuery {
-    query_type: FacetQueryType,
     criterion: Option<Criterion>,
-    sub_queries: Vec::<FacetQuery>
+    sub_queries: Vec::<FacetQuery>,
+    operation: Operation,
 }
 
 
@@ -46,55 +70,65 @@ pub fn query_index(index: &SearchableIndex, query: &IndexQuery) -> SearchResultI
 
     // Gather freq of each property query
 
-    let mut doc_ids = HashSet::new();
-
-    for p in &query.criterion.properties {
-
-        let ids: HashSet<usize> = query_property(index, p).iter().map(|wf| wf.doc_id).collect();
-
-        doc_ids = ids;
-    }
-
-    let mut docs_ids_facets = HashSet::new();
+    let mut doc_ids = query_criterion(index, &query.criterion);
 
     if let Some(facets) = &query.facets {
 
+        let mut doc_ids_facets = HashSet::new();
 
         // lookup facet properties and return documents which has these facets un the desired properties
 
-
-
+        if let Some(criterion) = &facets.criterion {
+            doc_ids_facets = query_criterion(index, criterion);
+        }
 
         // intersect facet doc ids and properties doc ids
         // TODO: Make sure we call intersect on the smaller of the sets as the left
         // see https://stackoverflow.com/questions/35439376/why-is-python-set-intersection-faster-than-rust-hashset-intersection
 
-        // TODO: maybe have docs_ids as vec and just run through them and take the X first resulst that exists in the facet doc_ids??
+        // TODO: maybe have doc_ids as vec and just run through them and take the X first resulst that exists in the facet doc_ids??
 
-        doc_ids = docs_ids_facets.intersection(&doc_ids).copied().collect();
+        println!("FacetIds {:?}",doc_ids_facets.len());
+
+        doc_ids = facets.operation.combine(&doc_ids, &doc_ids_facets);
     };
-
-
 
     SearchResultIds {
         doc_ids: doc_ids
 
     }
+}
+
+fn query_criterion(index: &SearchableIndex, criterion: &Criterion) -> HashSet::<DocId> {
+
+    let mut doc_ids: HashSet<DocId> = query_property(index, &criterion.first_property).iter().map(|wf| wf.doc_id).collect();
+
+    if let Some(properties) = &criterion.additional_properties {
+        for p in properties {
+
+            let ids: HashSet<DocId> = query_property(index, p).iter().map(|wf| wf.doc_id).collect();
+
+            doc_ids = criterion.operation.combine(&doc_ids, &ids)
+        }
+    }
+
+    doc_ids
 
 }
+
+
 
 fn query_property(index: &SearchableIndex, query: &PropertyQuery) -> Vec::<WordFrequency> {
 
     return match &query.query_data {
         PropertyType::Text(query_text) => query_text_property(index, &query.name, query_text),
+        PropertyType::Integer(val) => query_integer_property(index, &query.name, val),
         _ => panic!("Not implemented query on other than Text")
     }
 }
 
 
 fn query_text_property(index: &SearchableIndex, property: &str, query_text: &str) -> Vec::<WordFrequency> {
-
-
     let map = index.get_property_map_text(property);
 
     let mut res = Vec::new();
@@ -104,8 +138,19 @@ fn query_text_property(index: &SearchableIndex, property: &str, query_text: &str
     }
 
     res
+}
 
 
+fn query_integer_property(index: &SearchableIndex, property: &str, val: &IntegerT) -> Vec::<WordFrequency> {
+    let map = index.get_property_map_integer(property);
+
+    let mut res = Vec::new();
+    if let Some(v) = map.get(val) {
+
+        res = v.clone();
+    }
+
+    res
 }
 
 
@@ -115,7 +160,7 @@ mod tests {
     use super::*;
     use crate::index::*;
     use crate::query::tests::searchable_index::*;
-    use crate::query::tests::index_types::*;
+
 
 
     fn create_index() -> SearchableIndex {
@@ -147,19 +192,22 @@ mod tests {
 
         let index = create_index();
 
-
-        let properties = vec![
-            PropertyQuery {
+        let criterion = Criterion {
+            first_property: PropertyQuery {
                 name: "content".to_string(),
                 query_data: PropertyType::Text("unknown".to_string())
-            }
-        ];
+            },
+            additional_properties: None,
+            operation: Operation::Or
+        };
+
+
 
         let query = IndexQuery {
-            criterion: Criterion {properties: properties.clone()},
+            criterion,
             facets: None
-
         };
+
 
 
         let res = query_index(&index, &query);
@@ -174,19 +222,21 @@ mod tests {
 
         let index = create_index();
 
-
-        let properties = vec![
-            PropertyQuery {
+        let criterion = Criterion {
+            first_property: PropertyQuery {
                 name: "content".to_string(),
                 query_data: PropertyType::Text("lorup".to_string())
-            }
-        ];
-
-        let query = IndexQuery {
-            criterion: Criterion {properties: properties.clone()},
-            facets: None
+            },
+            additional_properties: None,
+            operation: Operation::Or
         };
 
+
+
+        let query = IndexQuery {
+            criterion,
+            facets: None
+        };
 
         let res = query_index(&index, &query);
 
@@ -200,35 +250,35 @@ mod tests {
         let index = create_index();
 
 
-        let properties = vec![
-            PropertyQuery {
+        let criterion = Criterion {
+            first_property: PropertyQuery {
                 name: "content".to_string(),
                 query_data: PropertyType::Text("lorup".to_string())
-            }
-        ];
+            },
+            additional_properties: None,
+            operation: Operation::Or
+        };
 
-        let facet_properties = vec![
-            PropertyQuery {
+        let facet_criterion = Criterion {
+            first_property: PropertyQuery {
                 name: "count".to_string(),
                 query_data: PropertyType::Integer(1)
-            }
-        ];
-
-
-
-        let facet_query = FacetQuery {
-            criterion: Some(Criterion { properties: facet_properties.clone() }),
-            sub_queries: Vec::new(),
-            query_type: FacetQueryType::And
-
-
+            },
+            additional_properties: None,
+            operation: Operation::Or
         };
+
+        let facet = FacetQuery {
+            criterion: Some(facet_criterion),
+            sub_queries: Vec::new(),
+            operation: Operation::And
+        };
+
 
         let query = IndexQuery {
-            criterion: Criterion {properties: properties.clone()},
-            facets: None
+            criterion,
+            facets: Some(facet)
         };
-
 
         let res = query_index(&index, &query);
 
@@ -243,33 +293,36 @@ mod tests {
         let index = create_index();
 
 
-        let properties = vec![
-            PropertyQuery {
+        let criterion = Criterion {
+            first_property: PropertyQuery {
                 name: "content".to_string(),
                 query_data: PropertyType::Text("lorup".to_string())
-            }
-        ];
-
-        let facet_properties = vec![
-            PropertyQuery {
-                name: "count".to_string(),
-                query_data: PropertyType::Integer(10)
-            }
-        ];
-
-
-
-        let facet_query = FacetQuery {
-            criterion: Some(Criterion { properties: facet_properties.clone() }),
-            sub_queries: Vec::new(),
-            query_type: FacetQueryType::And
-
-
+            },
+            additional_properties: None,
+            operation: Operation::Or
         };
 
+
+        let facet_criterion = Criterion {
+            first_property: PropertyQuery {
+                name: "count".to_string(),
+                query_data: PropertyType::Integer(10)
+            },
+            additional_properties: None,
+            operation: Operation::Or
+        };
+
+        let facet = FacetQuery {
+            criterion: Some(facet_criterion),
+            sub_queries: Vec::new(),
+            operation: Operation::And
+        };
+
+
+
         let query = IndexQuery {
-            criterion: Criterion {properties: properties.clone()},
-            facets: None
+            criterion,
+            facets: Some(facet)
         };
 
 

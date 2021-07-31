@@ -85,7 +85,7 @@ impl SearchableIndex {
     }
 
 
-    fn insert_integer_property(&mut self, name: &str, data: u32)
+    fn insert_integer_property(&mut self, name: &str, data: IntegerT)
     {
         self.properties_integer_word_map.insert_data(name, data, WordFrequency { doc_id: self.next_id, frequency: 1});
     }
@@ -113,8 +113,13 @@ impl SearchableIndex {
 
     }
 
+
     pub fn get_property_map_text(&self, name: &str) -> &HashMap<TextT, Vec::<WordFrequency>> {
         self.properties_text_word_map.get_map(name)
+    }
+
+    pub fn get_property_map_integer(&self, name: &str) -> &HashMap<IntegerT, Vec::<WordFrequency>> {
+        self.properties_integer_word_map.get_map(name)
     }
 
 
